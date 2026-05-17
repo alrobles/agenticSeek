@@ -63,8 +63,25 @@ routes to the Hermes backend on the AgenticPlug server. The header is only
 sent when the variable is set, so omitting it preserves the gateway's default
 routing.
 
+## Session-based auth (GitHub Device Flow)
+
+For real deployments, prefer logging in once with the AgenticPlug CLI:
+
+```bash
+agenticplug login
+agenticplug whoami
+```
+
+This writes `~/.config/agenticplug/session.json`. AgenticSeek picks it up
+automatically — no secrets in `.env` or `config.ini`. Environment variables
+above still override individual fields for one-off runs. See
+[agenticplug_device_flow.md](agenticplug_device_flow.md) for WSL setup and
+a read-only smoke test.
+
 ## See also
 
+- [AgenticPlug Device Flow setup & smoke test](agenticplug_device_flow.md)
+  — how to consume an `agenticplug login` session from AgenticSeek.
 - [AgenticPlug GPL-Compatible Integration Boundary](agenticplug_gpl_boundary.md)
   — documents the licensing boundary between the AgenticSeek fork and the
   AgenticPlug external service.
