@@ -1,8 +1,9 @@
 """AgenticPlug gateway smoke test — virtual PoC integration.
 
-Spins up a real AgenticPlug broker (from the sibling agenticplug repo) with
-mock backends, creates a session file, and exercises the AgenticSeek provider
-path end-to-end. No real infrastructure is used.
+Spins up an in-process mock AgenticPlug gateway (MockGatewayHandler, defined
+below) that mimics the broker's key endpoints, creates a session file, and
+exercises the AgenticSeek provider path end-to-end.  No real infrastructure
+(reumanlab, HPC, GitHub OAuth) is used.
 
 Test matrix coverage:
   - Session file creation and loading
