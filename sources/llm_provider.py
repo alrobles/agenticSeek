@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from ollama import Client as OllamaClient
 from openai import OpenAI
 
+from sources.agenticplug_session import LOGIN_HINT, load_session_or_none
 from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
 
@@ -466,23 +467,25 @@ class Provider:
         """
         Use an AgenticPlug (or any OpenAI-compatible) gateway to generate text.
 
-        Configuration is read from environment variables so that secrets are not
-        stored in config.ini:
+        Configuration precedence (highest first):
 
-        - AGENTICPLUG_BASE_URL: full base URL of the gateway (e.g. http://127.0.0.1:8080/v1).
-          If unset, falls back to the provider's server_address from config.ini.
-        - AGENTICPLUG_MODEL: optional model override. If unset, uses provider_model.
-        - AGENTICPLUG_API_KEY: bearer token sent as `Authorization: Bearer <token>`.
-          Dev-only placeholder; production auth is expected to be GitHub App / JWT
-          handled by the agenticplug server.
-        - AGENTICPLUG_ROUTE_HEADER: optional value for `X-AgenticPlug-Route` used
-          by the gateway to route to a specific backend (e.g. "hermes").
+        1. Environment variables (``AGENTICPLUG_BASE_URL``, ``AGENTICPLUG_API_KEY``,
+           ``AGENTICPLUG_MODEL``, ``AGENTICPLUG_ROUTE_HEADER``). These let CI and
+           dev loops override the on-disk session without touching it.
+        2. The session file produced by ``agenticplug login`` — by default at
+           ``~/.config/agenticplug/session.json``, overridable with
+           ``AGENTICPLUG_SESSION_FILE``. Secrets live here, not in this repo.
+        3. ``provider_server_address`` from config.ini, defaulting to a local
+           gateway on 127.0.0.1.
 
-        Defaults keep traffic local: when no env is set, the provider talks to
-        the address configured in config.ini, which is 127.0.0.1 by default.
+        A missing session is *not* an error here — env-only and pure-localhost
+        setups must keep working. Auth errors will surface from the gateway
+        as a 401, which we relay with a hint to run ``agenticplug login``.
         """
         load_dotenv()
-        base_url = os.getenv("AGENTICPLUG_BASE_URL")
+        session = load_session_or_none()
+
+        base_url = os.getenv("AGENTICPLUG_BASE_URL") or (session.base_url if session else None)
         if not base_url:
             addr = self.server_address
             if "://" not in str(addr):
@@ -491,9 +494,19 @@ class Provider:
             if not base_url.endswith("/v1"):
                 base_url = f"{base_url}/v1"
 
-        api_key = os.getenv("AGENTICPLUG_API_KEY") or "not-required"
-        model = os.getenv("AGENTICPLUG_MODEL") or self.model
-        route_header = os.getenv("AGENTICPLUG_ROUTE_HEADER")
+        api_key = (
+            os.getenv("AGENTICPLUG_API_KEY")
+            or (session.token if session and session.token else None)
+            or "not-required"
+        )
+        model = (
+            os.getenv("AGENTICPLUG_MODEL")
+            or (session.model if session and session.model else None)
+            or self.model
+        )
+        route_header = os.getenv("AGENTICPLUG_ROUTE_HEADER") or (
+            session.route_header if session else None
+        )
 
         default_headers = {}
         if route_header:
@@ -516,7 +529,12 @@ class Provider:
                 print(thought)
             return thought
         except Exception as e:
-            raise Exception(f"AgenticPlug API error: {str(e)}") from e
+            msg = str(e)
+            if "401" in msg or "Unauthorized" in msg or "authentication" in msg.lower():
+                raise Exception(
+                    f"AgenticPlug API error: {msg}. {LOGIN_HINT}"
+                ) from e
+            raise Exception(f"AgenticPlug API error: {msg}") from e
 
     def dsk_deepseek(self, history, verbose=False):
         """
