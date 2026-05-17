@@ -1,3 +1,46 @@
+# EcoSeek
+
+> **EcoSeek** is an independent downstream adaptation of
+> [AgenticSeek](https://github.com/Fosowl/agenticSeek) focused on
+> scientific and ecological computing. We gratefully acknowledge the
+> AgenticSeek project and contributors as the foundation for this work.
+
+EcoSeek adapts the AgenticSeek agent runtime for ecological and
+computational biology workflows, providing three intelligence paths:
+
+1. **EcoCoder / EcoAgent community path** — local or cluster-hosted,
+   reproducible, open scientific workflow.
+2. **DeepSeek BYOK path** — bring your own DeepSeek API key for stronger
+   low-cost reasoning when you lack local hardware.
+3. **AgenticPlug cluster path** — secure round-trip connection to
+   user-owned workstations, lab servers, and HPC clusters.
+
+```text
+EcoSeek client  ->  AgenticPlug gateway  ->  Compute backends
+(this repo)         (auth, sessions,         (EcoCoder, EcoAgent,
+                     policy, audit)           DeepSeek BYOK, HPC)
+```
+
+See [UPSTREAM_CREDITS.md](UPSTREAM_CREDITS.md) for full attribution,
+[NOTICE.md](NOTICE.md) for license posture, and the upstream
+[AgenticSeek README](#agenticseek-upstream-readme) below for the
+original project documentation.
+
+> **Note:** EcoSeek is not the official AgenticSeek project, is not
+> endorsed by the upstream maintainers, and does not replace upstream
+> AgenticSeek. See [UPSTREAM_CREDITS.md](UPSTREAM_CREDITS.md) for
+> details.
+
+---
+
+# AgenticSeek (Upstream README)
+
+*The content below is the original upstream AgenticSeek documentation,
+preserved for reference and to comply with GPLv3 attribution
+requirements.*
+
+---
+
 # AgenticSeek: Private, Local Manus Alternative.
 
 <p align="center">
