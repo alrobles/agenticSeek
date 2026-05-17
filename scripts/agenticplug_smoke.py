@@ -11,6 +11,10 @@ Confirms that AgenticSeek can use an existing AgenticPlug session (created by
 The script never writes, submits, or cancels anything. Any write operation
 must go through the AgenticPlug approval UX, which lives outside this script.
 
+The ``--path`` argument is required so we never list a directory the
+operator didn't explicitly ask for. See ``docs/agenticplug_device_flow.md``
+for example invocations (including the KU-HPC home-directory smoke).
+
 Exit codes:
     0 — all three steps succeeded.
     2 — no session file (user needs to run `agenticplug login`).
@@ -43,8 +47,31 @@ from sources.agenticplug_session import (
 )
 
 
-DEFAULT_LIST_PATH = "/home/a474r867"
 DEFAULT_HEAD_LINES = 50
+
+# Header names we never want to print back to the user, in any output mode.
+_REDACTED_HEADERS = {"authorization", "x-amz-security-token"}
+# JSON-output keys whose values are tokens/credentials and must be redacted.
+_REDACTED_FIELDS = {"token", "access_token", "refresh_token", "id_token", "authorization"}
+_REDACTED_PLACEHOLDER = "***redacted***"
+
+
+def _redact(value):
+    """Recursively replace credential-shaped fields with a placeholder.
+
+    Defense in depth — the smoke script's JSON mode is meant to land in CI logs
+    and the user's clipboard. The session token never needs to appear there,
+    and gateway-side ``user`` records sometimes include extras like
+    ``access_token`` we'd rather not echo either.
+    """
+    if isinstance(value, dict):
+        return {
+            k: _REDACTED_PLACEHOLDER if k.lower() in _REDACTED_FIELDS else _redact(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
 
 
 def _headers(session: AgenticPlugSession) -> Dict[str, str]:
@@ -156,8 +183,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument(
         "--path",
-        default=DEFAULT_LIST_PATH,
-        help=f"Directory to list (default: {DEFAULT_LIST_PATH}).",
+        required=True,
+        help="Absolute directory path to list on the cluster (read-only). "
+             "Pass an account-scoped path you own — examples in "
+             "docs/agenticplug_device_flow.md.",
     )
     parser.add_argument(
         "--head",
@@ -209,7 +238,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
 
     if args.json:
-        print(json.dumps(result, indent=2, default=str))
+        print(json.dumps(_redact(result), indent=2, default=str))
         return 0
 
     login = identity.get("login") if isinstance(identity, dict) else identity

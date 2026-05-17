@@ -103,7 +103,7 @@ points:
 Once `agenticplug login` and `agenticplug whoami` succeed, run:
 
 ```bash
-python scripts/agenticplug_smoke.py
+python scripts/agenticplug_smoke.py --path /home/<your-account>
 ```
 
 The script performs three read-only checks:
@@ -114,9 +114,9 @@ The script performs three read-only checks:
 | `list_clusters` | `GET /clusters`                        | Lists clusters/connectors visible to the session. |
 | `ls`            | `POST /clusters/{cluster}/ls`          | Read-only directory listing on the chosen cluster. |
 
-By default the script lists `/home/a474r867` on cluster `ku-hpc`,
-truncated to 50 entries — useful as a tripwire for the KU-HPC connector.
-Override either:
+`--path` is required so the script never lists a directory the operator
+didn't explicitly name. Pass an account-scoped path you own. For the
+KU-HPC connector that typically looks like:
 
 ```bash
 python scripts/agenticplug_smoke.py \
@@ -125,7 +125,8 @@ python scripts/agenticplug_smoke.py \
     --head 50
 ```
 
-Add `--json` to emit machine-readable output for CI pipelines.
+Add `--json` to emit machine-readable output for CI pipelines. Token /
+authorization fields are redacted from JSON output as `***redacted***`.
 
 The script is **strictly read-only**. It does not submit, cancel, or
 modify anything. Any write/submit/cancel operation must go through the

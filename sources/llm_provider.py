@@ -499,7 +499,11 @@ class Provider:
             or (session.token if session and session.token else None)
             or "not-required"
         )
-        model = os.getenv("AGENTICPLUG_MODEL") or self.model or (session.model if session else None)
+        model = (
+            os.getenv("AGENTICPLUG_MODEL")
+            or (session.model if session and session.model else None)
+            or self.model
+        )
         route_header = os.getenv("AGENTICPLUG_ROUTE_HEADER") or (
             session.route_header if session else None
         )
