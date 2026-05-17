@@ -8,8 +8,8 @@ import asyncio
 import time
 from typing import List
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uuid
@@ -21,6 +21,15 @@ from sources.browser import Browser, create_driver
 from sources.utility import pretty_print
 from sources.logger import Logger
 from sources.schemas import QueryRequest, QueryResponse
+from sources.agenticplug_ux import ux_store
+from sources.local_security import (
+    DEFAULT_CORS_ORIGINS,
+    LocalTokenMiddleware,
+    env_local_token,
+    is_loopback_host,
+    parse_cors_origins,
+    resolve_backend_host,
+)
 
 from dotenv import load_dotenv
 
@@ -32,14 +41,14 @@ def is_running_in_docker():
     # Method 1: Check for .dockerenv file
     if os.path.exists('/.dockerenv'):
         return True
-    
+
     # Method 2: Check cgroup
     try:
         with open('/proc/1/cgroup', 'r') as f:
             return 'docker' in f.read()
     except:
         pass
-    
+
     return False
 
 
@@ -52,13 +61,25 @@ logger = Logger("backend.log")
 config = configparser.ConfigParser()
 config.read('config.ini')
 
+# Local lockdown defaults: AgenticSeek is a local laptop client and has no
+# built-in auth. CORS is restricted to the bundled React UI's localhost
+# origins by default; an optional X-Local-Token gate can be enabled via
+# BACKEND_LOCAL_TOKEN. See docs/local_lockdown.md.
+_cors_origins = parse_cors_origins(
+    os.getenv("BACKEND_CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+)
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_local_token = env_local_token()
+if _local_token:
+    api.add_middleware(LocalTokenMiddleware, token=_local_token)
+    logger.info("Local token gate enabled (X-Local-Token required)")
 
 if not os.path.exists(".screenshots"):
     os.makedirs(".screenshots")
@@ -287,6 +308,105 @@ async def process_query(request: QueryRequest):
         if config.getboolean('MAIN', 'save_session'):
             interaction.save_session()
 
+@api.get("/agenticplug/tasks")
+async def list_agenticplug_tasks():
+    tasks = ux_store.list_tasks()
+    return JSONResponse(
+        status_code=200,
+        content={"tasks": [t.jsonify() for t in tasks]},
+    )
+
+
+@api.get("/agenticplug/tasks/{task_id}")
+async def get_agenticplug_task(task_id: str):
+    task = ux_store.get_task(task_id)
+    if task is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "task not found"},
+        )
+    return JSONResponse(status_code=200, content=task.jsonify())
+
+
+@api.get("/agenticplug/tasks/{task_id}/events")
+async def stream_agenticplug_events(task_id: str):
+    task = ux_store.get_task(task_id)
+    if task is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "task not found"},
+        )
+
+    async def event_generator():
+        async for event_data in ux_store.event_stream(task_id):
+            yield event_data
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@api.get("/agenticplug/tasks/{task_id}/logs")
+async def get_agenticplug_task_logs(task_id: str):
+    task = ux_store.get_task(task_id)
+    if task is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "task not found"},
+        )
+    logs = ux_store.get_task_logs(task_id)
+    return JSONResponse(
+        status_code=200,
+        content={"task_id": task_id, "logs": logs},
+    )
+
+
+@api.post("/agenticplug/tasks/{task_id}/approve")
+async def approve_agenticplug_task(task_id: str):
+    task = ux_store.get_task(task_id)
+    if task is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "task not found"},
+        )
+    if task.approval_request and ux_store.is_high_risk_operation(task.approval_request.risk_level):
+        logger.info("High-risk operation approved for task {} by explicit user action".format(task_id))
+    updated = ux_store.approve_task(task_id)
+    if updated is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "task not found"},
+        )
+    return JSONResponse(status_code=200, content=updated.jsonify())
+
+
+@api.post("/agenticplug/tasks/{task_id}/deny")
+async def deny_agenticplug_task(task_id: str):
+    updated = ux_store.deny_task(task_id)
+    if updated is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "task not found"},
+        )
+    return JSONResponse(status_code=200, content=updated.jsonify())
+
+
+@api.post("/agenticplug/tasks/mock/generate")
+async def generate_mock_task(title: str = "", scenario: str = "default"):
+    task = ux_store.create_mock_task(title=title, scenario=scenario)
+    ux_store.run_mock_scenario(task, scenario=scenario)
+    return JSONResponse(
+        status_code=200,
+        content=task.jsonify(),
+    )
+
+
 if __name__ == "__main__":
     # Print startup info
     if is_running_in_docker():
@@ -299,4 +419,11 @@ if __name__ == "__main__":
         port = int(envport)
     else:
         port = 7777
-    uvicorn.run(api, host="0.0.0.0", port=port)
+    host = resolve_backend_host(os.getenv("BACKEND_HOST"), is_running_in_docker())
+    if not is_loopback_host(host) and not is_running_in_docker():
+        print(
+            "[AgenticSeek] WARNING: binding API to {host}. AgenticSeek has no "
+            "built-in auth; exposing it beyond localhost is unsupported until "
+            "agenticplug auth is in place. See docs/local_lockdown.md.".format(host=host)
+        )
+    uvicorn.run(api, host=host, port=port)

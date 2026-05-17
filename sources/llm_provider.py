@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from ollama import Client as OllamaClient
 from openai import OpenAI
 
+from sources.agenticplug_session import LOGIN_HINT, load_session_or_none
 from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
 
@@ -37,6 +38,7 @@ class Provider:
             "openrouter": self.openrouter_fn,
             "anthropic": self.anthropic_fn,
             "minimax": self.minimax_fn,
+            "agenticplug": self.agenticplug_fn,
             "test": self.test_fn
         }
         self.logger = Logger("provider.log")
@@ -460,6 +462,79 @@ class Provider:
             return thought
         except Exception as e:
             raise Exception(f"MiniMax API error: {str(e)}") from e
+
+    def agenticplug_fn(self, history, verbose=False):
+        """
+        Use an AgenticPlug (or any OpenAI-compatible) gateway to generate text.
+
+        Configuration precedence (highest first):
+
+        1. Environment variables (``AGENTICPLUG_BASE_URL``, ``AGENTICPLUG_API_KEY``,
+           ``AGENTICPLUG_MODEL``, ``AGENTICPLUG_ROUTE_HEADER``). These let CI and
+           dev loops override the on-disk session without touching it.
+        2. The session file produced by ``agenticplug login`` — by default at
+           ``~/.config/agenticplug/session.json``, overridable with
+           ``AGENTICPLUG_SESSION_FILE``. Secrets live here, not in this repo.
+        3. ``provider_server_address`` from config.ini, defaulting to a local
+           gateway on 127.0.0.1.
+
+        A missing session is *not* an error here — env-only and pure-localhost
+        setups must keep working. Auth errors will surface from the gateway
+        as a 401, which we relay with a hint to run ``agenticplug login``.
+        """
+        load_dotenv()
+        session = load_session_or_none()
+
+        base_url = os.getenv("AGENTICPLUG_BASE_URL") or (session.base_url if session else None)
+        if not base_url:
+            addr = self.server_address
+            if "://" not in str(addr):
+                addr = f"http://{addr}"
+            base_url = addr.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url = f"{base_url}/v1"
+
+        api_key = (
+            os.getenv("AGENTICPLUG_API_KEY")
+            or (session.token if session and session.token else None)
+            or "not-required"
+        )
+        model = (
+            os.getenv("AGENTICPLUG_MODEL")
+            or (session.model if session and session.model else None)
+            or self.model
+        )
+        route_header = os.getenv("AGENTICPLUG_ROUTE_HEADER") or (
+            session.route_header if session else None
+        )
+
+        default_headers = {}
+        if route_header:
+            default_headers["X-AgenticPlug-Route"] = route_header
+
+        client_kwargs = {"api_key": api_key, "base_url": base_url}
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        client = OpenAI(**client_kwargs)
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=history,
+            )
+            if response is None:
+                raise Exception("AgenticPlug response is empty.")
+            thought = response.choices[0].message.content
+            if verbose:
+                print(thought)
+            return thought
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Unauthorized" in msg or "authentication" in msg.lower():
+                raise Exception(
+                    f"AgenticPlug API error: {msg}. {LOGIN_HINT}"
+                ) from e
+            raise Exception(f"AgenticPlug API error: {msg}") from e
 
     def dsk_deepseek(self, history, verbose=False):
         """

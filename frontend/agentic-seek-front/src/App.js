@@ -4,6 +4,7 @@ import axios from "axios";
 import "./App.css";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { ResizableLayout } from "./components/ResizableLayout";
+import { AgenticPlugTaskView } from "./components/AgenticPlugTaskView";
 import faviconPng from "./logo.png";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -364,6 +365,12 @@ function App() {
               >
                 Browser View
               </button>
+              <button
+                className={currentView === "agenticplug" ? "active" : ""}
+                onClick={() => setCurrentView("agenticplug")}
+              >
+                AgenticPlug Tasks
+              </button>
             </div>
             <div className="content">
               {error && <p className="error">{error}</p>}
@@ -406,6 +413,7 @@ function App() {
                   />
                 </div>
               )}
+              {currentView === "agenticplug" && <AgenticPlugTaskView />}
             </div>
           </div>
         </ResizableLayout>
