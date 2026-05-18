@@ -226,9 +226,20 @@ class Provider:
         See docs/ecocoder-local.md for setup instructions.
         """
         ECOCODER_MODELS = {"ecocoder", "ecocoder:latest", "ecocoder:7b"}
+        _GENERIC_ALIASES = {
+            "deepseek-r1:14b", "deepseek-chat", "deepseek-r1:7b",
+            "qwen2.5-coder", "qwen2.5-coder:7b",
+        }
         model = self.model
-        if model in ("deepseek-r1:14b", "deepseek-chat"):
+        if model in _GENERIC_ALIASES:
             model = "ecocoder"
+        if model not in ECOCODER_MODELS:
+            pretty_print(
+                f"EcoCoder: model '{model}' is not a recognized EcoCoder variant. "
+                f"Known models: {', '.join(sorted(ECOCODER_MODELS))}. "
+                "Proceeding anyway — it may work if registered in Ollama.",
+                color="warning",
+            )
 
         if self.is_local:
             server_port = self.server_address.split(":")[-1] if ":" in str(self.server_address) else "11434"

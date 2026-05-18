@@ -259,6 +259,89 @@ class TestEcoCoderModelNameAtCallTime(unittest.TestCase):
             self.assertEqual(call_args[1]["model"], "ecocoder:7b")
 
 
+class TestEcoCoderModelValidation(unittest.TestCase):
+    """Model name validation warns on unrecognized variants."""
+
+    @patch("sources.llm_provider.pretty_print")
+    def test_recognized_model_no_warning(self, mock_pp):
+        from sources.llm_provider import Provider
+        p = Provider("ecocoder_local", "ecocoder", server_address="127.0.0.1:11434", is_local=True)
+
+        with patch("sources.llm_provider.OllamaClient") as MockClient:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = iter([{"message": {"content": "ok"}}])
+            MockClient.return_value = mock_client
+
+            p.ecocoder_local_fn([{"role": "user", "content": "test"}])
+            # No warning should be emitted for recognized model
+            for call in mock_pp.call_args_list:
+                if call[0] and "not a recognized" in str(call[0][0]):
+                    self.fail("Unexpected warning for recognized model 'ecocoder'")
+
+    @patch("sources.llm_provider.pretty_print")
+    def test_unrecognized_model_emits_warning(self, mock_pp):
+        from sources.llm_provider import Provider
+        p = Provider("ecocoder_local", "my-custom-model", server_address="127.0.0.1:11434", is_local=True)
+
+        with patch("sources.llm_provider.OllamaClient") as MockClient:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = iter([{"message": {"content": "ok"}}])
+            MockClient.return_value = mock_client
+
+            p.ecocoder_local_fn([{"role": "user", "content": "test"}])
+            warning_found = any(
+                "not a recognized" in str(call[0][0])
+                for call in mock_pp.call_args_list
+                if call[0]
+            )
+            self.assertTrue(warning_found, "Expected warning for unrecognized model")
+
+    @patch("sources.llm_provider.pretty_print")
+    def test_generic_alias_resolved_no_warning(self, mock_pp):
+        """Generic aliases like deepseek-r1:7b should resolve to ecocoder without warning."""
+        from sources.llm_provider import Provider
+        p = Provider("ecocoder_local", "deepseek-r1:7b", server_address="127.0.0.1:11434", is_local=True)
+
+        with patch("sources.llm_provider.OllamaClient") as MockClient:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = iter([{"message": {"content": "ok"}}])
+            MockClient.return_value = mock_client
+
+            p.ecocoder_local_fn([{"role": "user", "content": "test"}])
+            call_args = mock_client.chat.call_args
+            self.assertEqual(call_args[1]["model"], "ecocoder")
+
+    @patch("sources.llm_provider.pretty_print")
+    def test_qwen_alias_resolved_to_ecocoder(self, _pp):
+        from sources.llm_provider import Provider
+        p = Provider("ecocoder_local", "qwen2.5-coder", server_address="127.0.0.1:11434", is_local=True)
+
+        with patch("sources.llm_provider.OllamaClient") as MockClient:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = iter([{"message": {"content": "ok"}}])
+            MockClient.return_value = mock_client
+
+            p.ecocoder_local_fn([{"role": "user", "content": "test"}])
+            call_args = mock_client.chat.call_args
+            self.assertEqual(call_args[1]["model"], "ecocoder")
+
+    @patch("sources.llm_provider.pretty_print")
+    def test_unrecognized_model_still_passed_to_ollama(self, _pp):
+        """Unrecognized models proceed (just with a warning) — not blocked."""
+        from sources.llm_provider import Provider
+        p = Provider("ecocoder_local", "my-custom-model", server_address="127.0.0.1:11434", is_local=True)
+
+        with patch("sources.llm_provider.OllamaClient") as MockClient:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = iter([{"message": {"content": "ok"}}])
+            MockClient.return_value = mock_client
+
+            result = p.ecocoder_local_fn([{"role": "user", "content": "test"}])
+            call_args = mock_client.chat.call_args
+            self.assertEqual(call_args[1]["model"], "my-custom-model")
+            self.assertEqual(result, "ok")
+
+
 class TestEcoCoderHostResolution(unittest.TestCase):
     """Host URL construction for local vs remote."""
 
