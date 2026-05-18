@@ -54,7 +54,7 @@ def _derive_fernet_key() -> bytes:
     """
     try:
         login = os.getlogin()
-    except OSError:
+    except (OSError, AttributeError):
         login = os.getenv("USER", os.getenv("USERNAME", "user"))
     salt = f"{platform.node()}-{login}-ecoseek"
     raw = hashlib.sha256(salt.encode()).digest()
