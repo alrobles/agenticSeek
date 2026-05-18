@@ -52,7 +52,11 @@ def _derive_fernet_key() -> bytes:
     attacker can reproduce this key, but casual ``cat`` of the file
     reveals nothing useful.
     """
-    salt = f"{platform.node()}-{os.getlogin() if hasattr(os, 'getlogin') else 'user'}-ecoseek"
+    try:
+        login = os.getlogin()
+    except OSError:
+        login = os.getenv("USER", os.getenv("USERNAME", "user"))
+    salt = f"{platform.node()}-{login}-ecoseek"
     raw = hashlib.sha256(salt.encode()).digest()
     return base64.urlsafe_b64encode(raw)
 
@@ -173,6 +177,14 @@ def _file_list() -> List[str]:
     return list(_file_read_store().keys())
 
 
+def _file_store_name_only(name: str) -> None:
+    """Record key name in file index without storing the value."""
+    store = _file_read_store()
+    if name not in store:
+        store[name] = _encrypt("__keyring__")
+        _file_write_store(store)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -203,6 +215,9 @@ def store_key(name: str, value: str) -> None:
         _keyring_store(name, value)
     else:
         _file_store(name, value)
+    # Always write the name (not value) to the file index so list_keys works
+    if _backend():
+        _file_store_name_only(name)
     _logger.info(f"Stored key: {name}")
 
 
@@ -219,15 +234,17 @@ def delete_key(name: str) -> None:
     name = name.strip()
     if _backend():
         _keyring_delete(name)
-    else:
-        _file_delete(name)
+    _file_delete(name)
     _logger.info(f"Deleted key: {name}")
 
 
 def list_keys() -> List[str]:
-    """Return names of all stored credentials (values are never exposed)."""
-    if _backend():
-        return _file_list()
+    """Return names of all stored credentials (values are never exposed).
+
+    Note: the OS keyring does not support enumeration, so this always
+    reads from the file store which tracks key names (but not values
+    when the keyring backend is active — values live in the keychain).
+    """
     return _file_list()
 
 

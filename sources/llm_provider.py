@@ -354,7 +354,7 @@ class Provider:
             return thought
         except Exception as e:
             msg = str(e)
-            if "auth" in msg.lower() or "401" in msg or "invalid" in msg.lower():
+            if "401" in msg or "auth" in msg.lower() or "unauthorized" in msg.lower():
                 raise Exception(
                     f"DeepSeek API key rejected (key ending ...{redact(api_key)[-4:]}). "
                     "Check your key at https://platform.deepseek.com/api_keys"
@@ -389,7 +389,7 @@ class Provider:
             return thought
         except Exception as e:
             msg = str(e)
-            if "auth" in msg.lower() or "401" in msg or "invalid" in msg.lower():
+            if "401" in msg or "auth" in msg.lower() or "unauthorized" in msg.lower():
                 raise Exception(
                     f"DeepSeek BYOK key rejected (key ending ...{redact(api_key)[-4:]}). "
                     "Check your key at https://platform.deepseek.com/api_keys "
