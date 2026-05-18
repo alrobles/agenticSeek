@@ -40,6 +40,7 @@ class Provider:
             "anthropic": self.anthropic_fn,
             "minimax": self.minimax_fn,
             "deepseek_byok": self.deepseek_byok_fn,
+            "ecocoder_local": self.ecocoder_local_fn,
             "agenticplug": self.agenticplug_fn,
             "test": self.test_fn
         }
@@ -52,7 +53,7 @@ class Provider:
         if self.provider_name in self.unsafe_providers and self.is_local == False:
             pretty_print("Warning: you are using an API provider. You data will be sent to the cloud.", color="warning")
             self.api_key = self.get_api_key(self.provider_name)
-        elif self.provider_name != "ollama":
+        elif self.provider_name not in ("ollama", "ecocoder_local"):
             pretty_print(f"Provider: {provider_name} initialized at {self.server_ip}", color="success")
 
     def get_model_name(self) -> str:
@@ -200,6 +201,73 @@ class Provider:
                     f"Ollama connection refused at {host}. Is the server running?"
                 ) from e
             raise e
+
+        return thought
+
+    def ecocoder_local_fn(self, history, verbose=False):
+        """EcoCoder local provider — domain-adapted ecological code LLM via Ollama.
+
+        EcoCoder is a QLoRA fine-tune of Qwen2.5-Coder trained on ~80K lines
+        of ecological computing code (R, Python, C++). It is served through
+        Ollama like any other local model, but this provider adds:
+
+        - Default model name resolution (``ecocoder`` when model is generic)
+        - Health check with actionable setup instructions
+        - EcoCoder-specific error messages
+
+        Config example::
+
+            [MAIN]
+            is_local = True
+            provider_name = ecocoder_local
+            provider_model = ecocoder
+            provider_server_address = 127.0.0.1:11434
+
+        See docs/ecocoder-local.md for setup instructions.
+        """
+        ECOCODER_MODELS = {"ecocoder", "ecocoder:latest", "ecocoder:7b"}
+        model = self.model
+        if model in ("deepseek-r1:14b", "deepseek-chat"):
+            model = "ecocoder"
+
+        if self.is_local:
+            server_port = self.server_address.split(":")[-1] if ":" in str(self.server_address) else "11434"
+            host = f"{self.internal_url}:{server_port}"
+        else:
+            host = f"http://{self.server_address}"
+
+        client = OllamaClient(host=host)
+
+        try:
+            stream = client.chat(
+                model=model,
+                messages=history,
+                stream=True,
+            )
+            thought = ""
+            for chunk in stream:
+                if verbose:
+                    print(chunk["message"]["content"], end="", flush=True)
+                thought += chunk["message"]["content"]
+        except httpx.ConnectError as e:
+            raise Exception(
+                f"EcoCoder: Ollama connection failed at {host}.\n"
+                "Start Ollama with: ollama serve\n"
+                "See docs/ecocoder-local.md for setup instructions."
+            ) from e
+        except Exception as e:
+            if hasattr(e, 'status_code') and e.status_code == 404:
+                raise Exception(
+                    f"EcoCoder model '{model}' not found in Ollama.\n"
+                    "Pull the base model: ollama pull ecocoder\n"
+                    "Or register from GGUF: see docs/ecocoder-local.md"
+                ) from e
+            if "refused" in str(e).lower():
+                raise Exception(
+                    f"EcoCoder: Ollama connection refused at {host}.\n"
+                    "Start Ollama with: ollama serve"
+                ) from e
+            raise Exception(f"EcoCoder local error: {e}") from e
 
         return thought
 
