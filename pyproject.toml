@@ -12,6 +12,7 @@ dependencies = [
     "certifi==2025.4.26",
     "chromedriver-autoinstaller>=0.6.4",
     "colorama>=0.4.6",
+    "cryptography>=42.0.0",
     "distro>=1.7.0,<2",
     "fake-useragent>=2.1.0",
     "fastapi>=0.115.12",
@@ -54,3 +55,7 @@ dependencies = [
     "undetected-chromedriver>=3.5.5",
     "uvicorn>=0.34.0",
 ]
+
+[project.scripts]
+ecoseek = "sources.ecoseek_entrypoint:main"
+agenticseek = "sources.ecoseek_entrypoint:main"

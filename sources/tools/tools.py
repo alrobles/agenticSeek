@@ -107,10 +107,55 @@ class Tools():
         """
         pass
 
+    def _resolve_within_work_dir(self, save_path: str) -> str:
+        """Resolve *save_path* against ``self.work_dir`` and confirm the
+        result stays inside the work dir jail.
+
+        Defends against LLM-controlled paths that try to escape via
+        ``..`` traversal, absolute paths pointing outside the work
+        dir, or symlinks that resolve outside it.
+
+        Args:
+            save_path: A relative (preferred) or absolute filesystem
+                path produced by the LLM.
+
+        Returns:
+            The absolute, resolved path inside ``self.work_dir``.
+
+        Raises:
+            ValueError: If the resolved target is outside the work
+                dir. The message intentionally omits the host path.
+        """
+        if not save_path or not str(save_path).strip():
+            raise ValueError("save_path must be a non-empty string")
+
+        work_dir_real = os.path.realpath(self.work_dir)
+        # os.path.join discards work_dir when save_path is absolute, which
+        # is exactly the behavior we want to detect and reject.
+        candidate = os.path.join(work_dir_real, save_path)
+        target_real = os.path.realpath(candidate)
+
+        # Use commonpath to detect escape: target must be inside work_dir.
+        try:
+            common = os.path.commonpath([work_dir_real, target_real])
+        except ValueError:
+            # commonpath raises if the paths are on different drives
+            # (Windows). Treat as escape.
+            raise ValueError("save_path resolves outside the work directory")
+
+        if common != work_dir_real:
+            raise ValueError("save_path resolves outside the work directory")
+        return target_real
+
     def save_block(self, blocks:[str], save_path:str) -> None:
         """
         Save code or query blocks to a file at the specified path.
         Creates the directory path if it doesn't exist.
+
+        ``save_path`` is treated as relative to ``self.work_dir`` and
+        is jailed inside it: any path that resolves (after ``..`` and
+        symlink expansion) outside the work directory is rejected.
+
         Args:
             blocks (List[str]): List of code/query blocks to save
             save_path (str): File path where blocks should be saved
@@ -118,14 +163,23 @@ class Tools():
         if save_path is None:
             return
         self.logger.info(f"Saving blocks to {save_path}")
-        save_path_dir = os.path.dirname(save_path)
-        save_path_file = os.path.basename(save_path)
-        directory = os.path.join(self.work_dir, save_path_dir)
+        try:
+            target = self._resolve_within_work_dir(save_path)
+        except ValueError as exc:
+            # Log without leaking the resolved host path.
+            self.logger.warning(f"Refusing save_block: {exc}")
+            raise
+
+        directory = os.path.dirname(target)
         if directory and not os.path.exists(directory):
             self.logger.info(f"Creating directory {directory}")
             os.makedirs(directory)
+            # Re-validate after creating the directory in case a
+            # concurrent symlink swap moved it outside the jail.
+            self._resolve_within_work_dir(save_path)
+
         for block in blocks:
-            with open(os.path.join(directory, save_path_file), 'w') as f:
+            with open(target, 'w') as f:
                 f.write(block)
     
     def get_parameter_value(self, block: str, parameter_name: str) -> str:

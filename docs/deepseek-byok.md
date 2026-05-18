@@ -33,7 +33,11 @@ Keys are stored using one of two backends (tried in order):
    KWallet on Linux, Windows Credential Manager. Requires the `keyring`
    Python package.
 2. **Encrypted local file** — `~/.config/ecoseek/keys.json` with `0600`
-   permissions. Used when `keyring` is unavailable.
+   permissions. Used when `keyring` is unavailable. Encryption uses
+   Fernet (AES-128-CBC + HMAC-SHA256) from the `cryptography` package,
+   which is a **required dependency** — the keystore refuses to store
+   or read secrets if `cryptography` is not importable, rather than
+   silently writing reversible base64.
 
 ### Key resolution order
 
@@ -129,3 +133,15 @@ pip install keyring
 
 Without it, the encrypted file fallback is used. This is still secure
 but the OS keychain is preferred.
+
+### "EcoSeek keystore requires the 'cryptography' package"
+
+Install the required dependency:
+
+```bash
+pip install cryptography
+```
+
+The keystore intentionally fails closed if `cryptography` is missing —
+it will never silently fall back to plaintext or base64 for secret
+storage.

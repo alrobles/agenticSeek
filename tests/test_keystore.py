@@ -123,6 +123,86 @@ class TestEncryptionRoundtrip(_TempKeystoreMixin, unittest.TestCase):
         token = ks._encrypt("hello-world")
         self.assertEqual(ks._decrypt(token), "hello-world")
 
+    def test_stored_value_is_not_base64_reversible(self):
+        """Regression test for issue #30.
+
+        Earlier behavior fell back to base64 silently when
+        ``cryptography`` was unavailable, which is trivially
+        reversible. After the fix, the stored token must not decode
+        to the original plaintext via base64.
+        """
+        plaintext = "sk-deepseek-secret-very-distinct-1234567890"
+        ks.store_key("dsk", plaintext)
+        token = json.loads(ks._KEYS_FILE.read_text())["dsk"]
+
+        # The token must not be empty and must not equal the plaintext.
+        self.assertTrue(token)
+        self.assertNotEqual(token, plaintext)
+
+        # Plain urlsafe-base64 decode of the token must not yield the
+        # plaintext bytes. Fernet output starts with a version byte
+        # (0x80) and contains a 128-bit IV and HMAC; base64-decoding
+        # it produces binary noise, not the original secret.
+        import base64 as _b64
+        try:
+            decoded = _b64.urlsafe_b64decode(token.encode())
+        except Exception:
+            decoded = b""
+        self.assertNotIn(plaintext.encode(), decoded)
+
+        # Standard base64 alphabet (non-urlsafe) must also not reverse.
+        try:
+            decoded_std = _b64.b64decode(token.encode(), validate=False)
+        except Exception:
+            decoded_std = b""
+        self.assertNotIn(plaintext.encode(), decoded_std)
+
+
+class TestCryptoUnavailableFailsClosed(_TempKeystoreMixin, unittest.TestCase):
+    """Regression test for issue #30: no silent base64 fallback.
+
+    When the ``cryptography`` package is missing, the keystore must
+    raise ``KeystoreCryptoUnavailable`` rather than silently writing
+    base64-encoded plaintext.
+    """
+
+    def test_encrypt_raises_when_cryptography_missing(self):
+        with patch('sources.keystore._require_fernet',
+                   side_effect=ks.KeystoreCryptoUnavailable(ks._CRYPTO_INSTALL_MSG)):
+            with self.assertRaises(ks.KeystoreCryptoUnavailable):
+                ks._encrypt("anything")
+
+    def test_decrypt_raises_when_cryptography_missing(self):
+        with patch('sources.keystore._require_fernet',
+                   side_effect=ks.KeystoreCryptoUnavailable(ks._CRYPTO_INSTALL_MSG)):
+            with self.assertRaises(ks.KeystoreCryptoUnavailable):
+                ks._decrypt("anything")
+
+    def test_store_key_raises_when_cryptography_missing(self):
+        with patch('sources.keystore._require_fernet',
+                   side_effect=ks.KeystoreCryptoUnavailable(ks._CRYPTO_INSTALL_MSG)):
+            with self.assertRaises(ks.KeystoreCryptoUnavailable):
+                ks.store_key("name", "value")
+
+    def test_error_message_is_actionable(self):
+        msg = ks._CRYPTO_INSTALL_MSG
+        self.assertIn("cryptography", msg.lower())
+        self.assertIn("pip install", msg)
+
+    def test_require_fernet_translates_importerror(self):
+        """Simulate ImportError at the cryptography import site."""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "cryptography.fernet" or name.startswith("cryptography"):
+                raise ImportError("No module named 'cryptography'")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, '__import__', side_effect=fake_import):
+            with self.assertRaises(ks.KeystoreCryptoUnavailable):
+                ks._require_fernet()
+
 
 class TestCorruptedFile(_TempKeystoreMixin, unittest.TestCase):
 
