@@ -11,11 +11,15 @@ Storage backends (tried in order):
 2. **Encrypted local file** at ``~/.config/ecoseek/keys.json`` with
    ``0600`` permissions when ``keyring`` is unavailable.
 
-The file-based fallback uses Fernet symmetric encryption with a
-machine-derived key so the JSON on disk is not plaintext. This is not
-HSM-grade security — it defends against casual file reads, not a
-determined attacker with root on the same machine. The OS keychain is
-strongly preferred.
+The file-based fallback uses Fernet symmetric encryption (AES-128-CBC
++ HMAC-SHA256) with a machine-derived key so the JSON on disk is not
+plaintext. ``cryptography`` is a required dependency; the keystore
+fails closed with an actionable installation error if it cannot be
+imported. There is no plaintext or base64 fallback for secret values.
+
+This is not HSM-grade security — it defends against casual file reads,
+not a determined attacker with root on the same machine. The OS
+keychain is strongly preferred.
 
 All public functions redact key values from exceptions and log output.
 """
@@ -37,6 +41,23 @@ _SERVICE_NAME = "ecoseek"
 _CONFIG_DIR = Path.home() / ".config" / "ecoseek"
 _KEYS_FILE = _CONFIG_DIR / "keys.json"
 _REDACTED = "***REDACTED***"
+
+_CRYPTO_INSTALL_MSG = (
+    "EcoSeek keystore requires the 'cryptography' package for at-rest "
+    "encryption of BYOK secrets. Install it with:\n"
+    "    pip install cryptography\n"
+    "Refusing to store secrets without real encryption."
+)
+
+
+class KeystoreCryptoUnavailable(RuntimeError):
+    """Raised when ``cryptography`` is not importable.
+
+    The keystore refuses to fall back to base64 or plaintext; callers
+    must install ``cryptography`` (declared as a required dependency)
+    before storing or retrieving secrets.
+    """
+
 
 _logger = Logger("keystore.log")
 
@@ -77,24 +98,40 @@ def _secure_permissions(path: Path) -> None:
         pass
 
 
-def _encrypt(plaintext: str) -> str:
-    """Fernet-encrypt *plaintext* and return a URL-safe base64 string."""
+def _require_fernet():
+    """Import Fernet or raise an actionable error.
+
+    The keystore never silently downgrades to base64 — that would
+    write secrets to disk in trivially reversible form. If
+    ``cryptography`` is missing we fail closed.
+    """
     try:
         from cryptography.fernet import Fernet
-        f = Fernet(_derive_fernet_key())
-        return f.encrypt(plaintext.encode()).decode()
-    except ImportError:
-        return base64.urlsafe_b64encode(plaintext.encode()).decode()
+    except ImportError as exc:
+        raise KeystoreCryptoUnavailable(_CRYPTO_INSTALL_MSG) from exc
+    return Fernet
+
+
+def _encrypt(plaintext: str) -> str:
+    """Fernet-encrypt *plaintext* and return a URL-safe base64 string.
+
+    Raises:
+        KeystoreCryptoUnavailable: if ``cryptography`` is not installed.
+    """
+    Fernet = _require_fernet()
+    f = Fernet(_derive_fernet_key())
+    return f.encrypt(plaintext.encode()).decode()
 
 
 def _decrypt(token: str) -> str:
-    """Decrypt a token produced by ``_encrypt``."""
-    try:
-        from cryptography.fernet import Fernet
-        f = Fernet(_derive_fernet_key())
-        return f.decrypt(token.encode()).decode()
-    except ImportError:
-        return base64.urlsafe_b64decode(token.encode()).decode()
+    """Decrypt a token produced by ``_encrypt``.
+
+    Raises:
+        KeystoreCryptoUnavailable: if ``cryptography`` is not installed.
+    """
+    Fernet = _require_fernet()
+    f = Fernet(_derive_fernet_key())
+    return f.decrypt(token.encode()).decode()
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +200,10 @@ def _file_get(name: str) -> Optional[str]:
         return None
     try:
         return _decrypt(token)
+    except KeystoreCryptoUnavailable:
+        # Propagate so callers see the actionable setup error instead
+        # of silently treating "no crypto installed" as "key missing".
+        raise
     except Exception:
         return None
 

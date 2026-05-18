@@ -26,6 +26,7 @@ setup(
         "sacremoses>=0.0.53",
         "numpy>=1.24.4",
         "colorama>=0.4.6",
+        "cryptography>=42.0.0",
         "python-dotenv>=1.0.0",
         "playsound>=1.3.0",
         "soundfile>=0.13.1",
@@ -67,7 +68,12 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "agenticseek=main:main",
+            # EcoSeek primary command.
+            "ecoseek=sources.ecoseek_entrypoint:main",
+            # Preserve the historical AgenticSeek entry point so
+            # existing users / docs keep working. Both invoke the same
+            # underlying CLI.
+            "agenticseek=sources.ecoseek_entrypoint:main",
         ],
     },
     classifiers=[

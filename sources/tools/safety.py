@@ -28,10 +28,10 @@ unsafe_commands_unix = [
     "fdisk",        # Disk partitioning
     "parted",       # Disk partitioning
     "chroot",       # Change root directory
-    "route"         # Routing table management
-    "--force",     # Force flag for many commands
-    "rebase",     # Rebase git repository
-    "git" # Git commands
+    "route",        # Routing table management
+    "--force",      # Force flag for many commands
+    "rebase",       # Rebase git repository
+    "git",          # Git commands
 ]
 
 unsafe_commands_windows = [
