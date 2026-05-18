@@ -41,19 +41,22 @@ class Provider:
             "minimax": self.minimax_fn,
             "deepseek_byok": self.deepseek_byok_fn,
             "ecocoder_local": self.ecocoder_local_fn,
+            "ecocoder_cluster": self.ecocoder_cluster_fn,
             "agenticplug": self.agenticplug_fn,
             "test": self.test_fn
         }
         self.logger = Logger("provider.log")
         self.api_key = None
         self.internal_url, self.in_docker = self.get_internal_url()
-        self.unsafe_providers = ["openai", "deepseek", "deepseek_byok", "dsk_deepseek", "together", "google", "openrouter", "anthropic", "minimax"]
+        self.unsafe_providers = ["openai", "deepseek", "deepseek_byok", "dsk_deepseek", "together", "google", "openrouter", "anthropic", "minimax", "ecocoder_cluster"]
         if self.provider_name not in self.available_providers:
             raise ValueError(f"Unknown provider: {provider_name}")
+        _session_auth_providers = {"ecocoder_cluster", "agenticplug"}
         if self.provider_name in self.unsafe_providers and self.is_local == False:
             pretty_print("Warning: you are using an API provider. You data will be sent to the cloud.", color="warning")
-            self.api_key = self.get_api_key(self.provider_name)
-        elif self.provider_name not in ("ollama", "ecocoder_local"):
+            if self.provider_name not in _session_auth_providers:
+                self.api_key = self.get_api_key(self.provider_name)
+        elif self.provider_name not in ("ollama", "ecocoder_local", "ecocoder_cluster"):
             pretty_print(f"Provider: {provider_name} initialized at {self.server_ip}", color="success")
 
     def get_model_name(self) -> str:
@@ -281,6 +284,120 @@ class Provider:
             raise Exception(f"EcoCoder local error: {e}") from e
 
         return thought
+
+    def ecocoder_cluster_fn(self, history, verbose=False):
+        """EcoCoder cluster provider — domain-adapted LLM via AgenticPlug gateway.
+
+        Routes inference to an EcoCoder model running on a remote cluster
+        (e.g. KU HPC with Ollama) through the AgenticPlug gateway.  This
+        provider combines EcoCoder-specific model resolution with the
+        AgenticPlug session/auth layer.
+
+        Configuration precedence (highest first):
+
+        1. Environment variables (``ECOCODER_CLUSTER_BASE_URL``,
+           ``ECOCODER_CLUSTER_API_KEY``, ``ECOCODER_CLUSTER_MODEL``,
+           ``ECOCODER_CLUSTER_ROUTE``).
+        2. The AgenticPlug session file (``~/.config/agenticplug/session.json``).
+        3. ``provider_server_address`` from config.ini.
+
+        Config example::
+
+            [MAIN]
+            is_local = False
+            provider_name = ecocoder_cluster
+            provider_model = ecocoder
+            provider_server_address = 127.0.0.1:8080
+
+        See docs/ecocoder-cluster.md for setup instructions.
+        """
+        ECOCODER_MODELS = {"ecocoder", "ecocoder:latest", "ecocoder:7b"}
+        _GENERIC_ALIASES = {
+            "deepseek-r1:14b", "deepseek-chat", "deepseek-r1:7b",
+            "qwen2.5-coder", "qwen2.5-coder:7b",
+        }
+
+        model = self.model
+        if model in _GENERIC_ALIASES:
+            model = "ecocoder"
+        if model not in ECOCODER_MODELS:
+            pretty_print(
+                f"EcoCoder cluster: model '{model}' is not a recognized EcoCoder variant. "
+                f"Known models: {', '.join(sorted(ECOCODER_MODELS))}. "
+                "Proceeding anyway — it may work if registered on the cluster.",
+                color="warning",
+            )
+
+        load_dotenv()
+        session = load_session_or_none()
+
+        base_url = os.getenv("ECOCODER_CLUSTER_BASE_URL") or (
+            session.base_url if session else None
+        )
+        if not base_url:
+            addr = self.server_address
+            if "://" not in str(addr):
+                addr = f"http://{addr}"
+            base_url = addr.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url = f"{base_url}/v1"
+
+        api_key = (
+            os.getenv("ECOCODER_CLUSTER_API_KEY")
+            or (session.token if session and session.token else None)
+            or "not-required"
+        )
+
+        env_model = os.getenv("ECOCODER_CLUSTER_MODEL")
+        if env_model:
+            model = env_model
+
+        route_header = os.getenv("ECOCODER_CLUSTER_ROUTE") or (
+            session.route_header if session else None
+        ) or "ecocoder"
+
+        default_headers = {"X-AgenticPlug-Route": route_header}
+
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers,
+        )
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=history,
+            )
+            if response is None:
+                raise Exception("EcoCoder cluster: empty response from gateway.")
+            thought = response.choices[0].message.content
+            if verbose:
+                print(thought)
+            return thought
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Unauthorized" in msg or "authentication" in msg.lower():
+                raise Exception(
+                    f"EcoCoder cluster auth failed: {msg}.\n"
+                    f"Run `agenticplug login` to create a session.\n"
+                    f"See docs/ecocoder-cluster.md for setup instructions."
+                ) from e
+            if "404" in msg or "not found" in msg.lower():
+                raise Exception(
+                    f"EcoCoder model '{model}' not found on cluster.\n"
+                    "Ensure the model is registered in Ollama on the cluster:\n"
+                    "  ollama pull ecocoder\n"
+                    "See docs/ecocoder-cluster.md for setup instructions."
+                ) from e
+            if "refused" in msg.lower() or "connect" in msg.lower():
+                raise Exception(
+                    f"EcoCoder cluster: gateway connection failed at {base_url}.\n"
+                    "Check that AgenticPlug gateway is running and the cluster\n"
+                    "Ollama instance is reachable via SSH tunnel.\n"
+                    "See docs/ecocoder-cluster.md for setup instructions."
+                ) from e
+            raise Exception(f"EcoCoder cluster error: {msg}") from e
 
     def huggingface_fn(self, history, verbose=False):
         """
