@@ -12,6 +12,7 @@ from ollama import Client as OllamaClient
 from openai import OpenAI
 
 from sources.agenticplug_session import LOGIN_HINT, load_session_or_none
+from sources.keystore import get_deepseek_key, redact
 from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
 
@@ -38,6 +39,7 @@ class Provider:
             "openrouter": self.openrouter_fn,
             "anthropic": self.anthropic_fn,
             "minimax": self.minimax_fn,
+            "deepseek_byok": self.deepseek_byok_fn,
             "agenticplug": self.agenticplug_fn,
             "test": self.test_fn
         }
@@ -328,8 +330,16 @@ class Provider:
     def deepseek_fn(self, history, verbose=False):
         """
         Use deepseek api to generate text.
+
+        Key resolution: keystore first, then env var fallback.
         """
-        client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+        api_key = get_deepseek_key() or self.api_key
+        if not api_key:
+            raise Exception(
+                "DeepSeek API key not found. Run `ecoseek keys set deepseek` "
+                "or set DEEPSEEK_API_KEY in .env. See docs/deepseek-byok.md."
+            )
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         if self.is_local:
             raise Exception("Deepseek (API) is not available for local use. Change config.ini")
         try:
@@ -343,7 +353,49 @@ class Provider:
                 print(thought)
             return thought
         except Exception as e:
-            raise Exception(f"Deepseek API error: {str(e)}") from e
+            msg = str(e)
+            if "auth" in msg.lower() or "401" in msg or "invalid" in msg.lower():
+                raise Exception(
+                    f"DeepSeek API key rejected (key ending ...{redact(api_key)[-4:]}). "
+                    "Check your key at https://platform.deepseek.com/api_keys"
+                ) from e
+            raise Exception(f"Deepseek API error: {msg}") from e
+
+    def deepseek_byok_fn(self, history, verbose=False):
+        """
+        Secure BYOK DeepSeek provider (ADR-004).
+
+        Identical to ``deepseek_fn`` but enforces keystore-first resolution
+        and provides better error messages for key management.
+        """
+        api_key = get_deepseek_key()
+        if not api_key:
+            raise Exception(
+                "DeepSeek BYOK key not found. Store it securely:\n"
+                "  ecoseek keys set deepseek\n"
+                "Or set DEEPSEEK_API_KEY in your environment.\n"
+                "See docs/deepseek-byok.md for setup instructions."
+            )
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        try:
+            response = client.chat.completions.create(
+                model=self.model if self.model != "deepseek-r1:14b" else "deepseek-chat",
+                messages=history,
+                stream=False
+            )
+            thought = response.choices[0].message.content
+            if verbose:
+                print(thought)
+            return thought
+        except Exception as e:
+            msg = str(e)
+            if "auth" in msg.lower() or "401" in msg or "invalid" in msg.lower():
+                raise Exception(
+                    f"DeepSeek BYOK key rejected (key ending ...{redact(api_key)[-4:]}). "
+                    "Check your key at https://platform.deepseek.com/api_keys "
+                    "or re-store it with: ecoseek keys set deepseek"
+                ) from e
+            raise Exception(f"DeepSeek BYOK API error: {msg}") from e
 
     def lm_studio_fn(self, history, verbose=False):
         """
