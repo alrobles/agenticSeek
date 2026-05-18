@@ -64,7 +64,7 @@ Run everything on your own hardware. No API keys, no cloud, fully private.
 ### Hardware Requirements
 
 A GPU capable of running 7B-14B parameter models. See the
-[upstream FAQ](#upstream-faq) for specific recommendations.
+upstream AgenticSeek README (in this repo) for hardware recommendations.
 
 ### Step 1: Install and Start Ollama
 
@@ -293,9 +293,9 @@ The client resolves the gateway URL in this order:
 
 | Priority | Source |
 |----------|--------|
-| 1 | `AGENTICPLUG_BASE_URL` environment variable |
-| 2 | `base_url` from `~/.config/agenticplug/session.json` |
-| 3 | `provider_server_address` in `config.ini` |
+| 1 | Explicit `gateway_url` argument in code |
+| 2 | `AGENTICPLUG_BASE_URL` environment variable |
+| 3 | `base_url` from `~/.config/agenticplug/session.json` |
 | 4 | Default: `http://127.0.0.1:8080` |
 
 ### Security Model
