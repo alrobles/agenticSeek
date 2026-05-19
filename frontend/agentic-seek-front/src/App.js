@@ -6,6 +6,7 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { ResizableLayout } from "./components/ResizableLayout";
 import { AgenticPlugTaskView } from "./components/AgenticPlugTaskView";
 import faviconPng from "./logo.png";
+import { ReactComponent as EcoSeekLogo } from "./ecoseek-logo.svg";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 console.log("Using backend URL:", BACKEND_URL);
@@ -206,10 +207,10 @@ function App() {
       <header className="header">
         <div className="header-brand">
           <div className="logo-container">
-            <img src={faviconPng} alt="AgenticSeek" className="logo-icon" />
+            <EcoSeekLogo className="logo-icon" />
           </div>
           <div className="brand-text">
-            <h1>AgenticSeek</h1>
+            <h1>EcoSeek</h1>
           </div>
         </div>
         <div className="header-status">
@@ -224,7 +225,7 @@ function App() {
         </div>
         <div className="header-actions">
           <a
-            href="https://github.com/Fosowl/agenticSeek"
+            href="https://github.com/alrobles/ecoseek"
             target="_blank"
             rel="noopener noreferrer"
             className="action-button github-link"

@@ -54,7 +54,7 @@ def is_running_in_docker():
 
 from celery import Celery
 
-api = FastAPI(title="AgenticSeek API", version="0.1.0")
+api = FastAPI(title="EcoSeek API", version="0.1.0")
 celery_app = Celery("tasks", broker="redis://localhost:6379/0", backend="redis://localhost:6379/0")
 celery_app.conf.update(task_track_started=True)
 logger = Logger("backend.log")
@@ -410,9 +410,9 @@ async def generate_mock_task(title: str = "", scenario: str = "default"):
 if __name__ == "__main__":
     # Print startup info
     if is_running_in_docker():
-        print("[AgenticSeek] Starting in Docker container...")
+        print("[EcoSeek] Starting in Docker container...")
     else:
-        print("[AgenticSeek] Starting on host machine...")
+        print("[EcoSeek] Starting on host machine...")
     
     envport = os.getenv("BACKEND_PORT")
     if envport:
@@ -422,7 +422,7 @@ if __name__ == "__main__":
     host = resolve_backend_host(os.getenv("BACKEND_HOST"), is_running_in_docker())
     if not is_loopback_host(host) and not is_running_in_docker():
         print(
-            "[AgenticSeek] WARNING: binding API to {host}. AgenticSeek has no "
+            "[EcoSeek] WARNING: binding API to {host}. EcoSeek has no "
             "built-in auth; exposing it beyond localhost is unsupported until "
             "agenticplug auth is in place. See docs/local_lockdown.md.".format(host=host)
         )
