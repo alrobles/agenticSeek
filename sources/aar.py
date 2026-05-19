@@ -13,7 +13,7 @@ import time
 import threading
 from enum import Enum
 from typing import List, Optional
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 
 
 class AARStepType(str, Enum):
@@ -150,15 +150,50 @@ class AARTracker:
             return "full"
 
     def summary(self) -> dict:
-        events = self.get_events()
+        """Atomic snapshot — single lock acquisition for consistency."""
+        with self._lock:
+            snapshot = list(self._events)
+        total = len(snapshot)
+        autonomous = sum(1 for e in snapshot if e.autonomous)
+        aar = (autonomous / total * 100.0) if total else 0.0
+
+        if aar <= 30:
+            band = "low"
+        elif aar <= 70:
+            band = "conditional"
+        elif aar <= 90:
+            band = "high"
+        else:
+            band = "full"
+
+        by_agent: dict = {}
+        by_step: dict = {}
+        for e in snapshot:
+            for bucket, key in ((by_agent, e.agent_type), (by_step, e.step_type)):
+                if key not in bucket:
+                    bucket[key] = {"autonomous": 0, "total": 0}
+                bucket[key]["total"] += 1
+                if e.autonomous:
+                    bucket[key]["autonomous"] += 1
+
+        def _pct(d: dict) -> dict:
+            return {
+                k: {
+                    "aar": (v["autonomous"] / v["total"] * 100.0) if v["total"] else 0.0,
+                    "autonomous": v["autonomous"],
+                    "total": v["total"],
+                }
+                for k, v in d.items()
+            }
+
         return {
-            "aar": round(self.compute_aar(), 1),
-            "band": self.get_autonomy_band(),
-            "total_actions": len(events),
-            "autonomous_actions": sum(1 for e in events if e.autonomous),
-            "hitl_actions": sum(1 for e in events if not e.autonomous),
-            "by_agent": self.compute_aar_by_agent(),
-            "by_step": self.compute_aar_by_step(),
+            "aar": round(aar, 1),
+            "band": band,
+            "total_actions": total,
+            "autonomous_actions": autonomous,
+            "hitl_actions": total - autonomous,
+            "by_agent": _pct(by_agent),
+            "by_step": _pct(by_step),
         }
 
 

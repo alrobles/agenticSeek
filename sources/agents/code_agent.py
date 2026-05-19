@@ -82,14 +82,15 @@ class CoderAgent(Agent):
             await asyncio.sleep(0)
             if exec_success and self.get_last_tool_type() != "bash":
                 break
-            pretty_print(f"Execution failure:\n{feedback}", color="failure")
-            pretty_print("Correcting code...", color="status")
-            aar_tracker.log(
-                agent_type=self.type, agent_name=self.agent_name,
-                step_type=AARStepType.SELF_HEALING, autonomous=True,
-                confidence=0.0,
-                notes=f"Self-correcting code, attempt {attempt + 1}/{max_attempts}",
-            )
+            if not exec_success:
+                pretty_print(f"Execution failure:\n{feedback}", color="failure")
+                pretty_print("Correcting code...", color="status")
+                aar_tracker.log(
+                    agent_type=self.type, agent_name=self.agent_name,
+                    step_type=AARStepType.SELF_HEALING, autonomous=True,
+                    confidence=0.0,
+                    notes=f"Self-correcting code, attempt {attempt + 1}/{max_attempts}",
+                )
             self.status_message = "Correcting code..."
             attempt += 1
         self.status_message = "Ready"
