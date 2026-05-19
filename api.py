@@ -462,7 +462,7 @@ async def aar_query(request: QueryRequest):
         )
 
     # Build the LLM call adapter from the existing provider
-    provider = interaction.current_agent.provider if interaction.current_agent else None
+    provider = interaction.current_agent.llm if interaction.current_agent else None
     if provider is None:
         return JSONResponse(
             status_code=500,
@@ -471,7 +471,8 @@ async def aar_query(request: QueryRequest):
 
     def llm_call(prompt: str) -> str:
         """Synchronous LLM call using the configured provider."""
-        response = provider.respond(prompt, "", is_local=provider.is_local)
+        history = [{"role": "user", "content": prompt}]
+        response = provider.respond(history, verbose=False)
         return response if isinstance(response, str) else str(response)
 
     def tool_call(tool_name: str, query: str) -> str:
