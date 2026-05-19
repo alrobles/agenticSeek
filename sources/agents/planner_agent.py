@@ -10,6 +10,7 @@ from sources.text_to_speech import Speech
 from sources.tools.tools import Tools
 from sources.logger import Logger
 from sources.memory import Memory
+from sources.aar import aar_tracker, AARStepType
 
 class PlannerAgent(Agent):
     def __init__(self, name, prompt_path, provider, verbose=False, browser=None):
@@ -273,6 +274,11 @@ class PlannerAgent(Agent):
         agents_work_result = dict()
 
         self.status_message = "Making a plan..."
+        aar_tracker.log(
+            agent_type=self.type, agent_name=self.agent_name,
+            step_type=AARStepType.DECOMPOSITION, autonomous=True,
+            notes="Decomposing goal into sub-tasks",
+        )
         agents_tasks = await self.make_plan(goal)
 
         if agents_tasks == []:
@@ -293,6 +299,13 @@ class PlannerAgent(Agent):
                 answer, success = await self.start_agent_process(task, required_infos)
             except Exception as e:
                 raise e
+            if not success:
+                aar_tracker.log(
+                    agent_type=self.type, agent_name=self.agent_name,
+                    step_type=AARStepType.ALTERNATIVE_PATH, autonomous=True,
+                    confidence=0.0,
+                    notes=f"Task {task['id']} failed, updating plan",
+                )
             if self.stop:
                 pretty_print(f"Requested stop.", color="failure")
             agents_work_result[task['id']] = answer

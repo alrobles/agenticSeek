@@ -5,6 +5,7 @@ from sources.text_to_speech import Speech
 from sources.utility import pretty_print, animate_thinking
 from sources.router import AgentRouter
 from sources.speech_to_text import AudioTranscriber, AudioRecorder
+from sources.aar import aar_tracker, AARStepType
 import threading
 
 
@@ -154,6 +155,13 @@ class Interaction:
         agent = self.router.select_agent(self.last_query)
         if agent is None:
             return False
+        aar_tracker.log(
+            agent_type=agent.type or "unknown",
+            agent_name=agent.agent_name,
+            step_type=AARStepType.PERCEPTION,
+            autonomous=True,
+            notes=f"Router selected {agent.type} for query",
+        )
         if self.current_agent != agent and self.last_answer is not None:
             push_last_agent_memory = True
         tmp = self.last_answer
