@@ -444,6 +444,62 @@ async def aar_reset():
     return JSONResponse(status_code=200, content={"status": "reset"})
 
 
+@api.post("/aar/query")
+async def aar_query(request: QueryRequest):
+    """
+    Run a query through the AAR (Adaptive Agentic Retrieval) loop.
+
+    Feature-flagged via ECOSEEK_AAR_ENABLED env var. Returns the AAR result
+    with decomposition, retrieval audit trail, and cited synthesis.
+    """
+    from ecoseek.aar.orchestrator import is_aar_enabled, run_aar
+    from ecoseek.providers.nemotron import get_judge_call
+
+    if not is_aar_enabled():
+        return JSONResponse(
+            status_code=400,
+            content={"error": "AAR mode disabled. Set ECOSEEK_AAR_ENABLED=true"},
+        )
+
+    # Build the LLM call adapter from the existing provider
+    provider = interaction.current_agent.llm if interaction.current_agent else None
+    if provider is None:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "No LLM provider initialised"},
+        )
+
+    def llm_call(prompt: str) -> str:
+        """Synchronous LLM call using the configured provider."""
+        history = [{"role": "user", "content": prompt}]
+        response = provider.respond(history, verbose=False)
+        return response if isinstance(response, str) else str(response)
+
+    def tool_call(tool_name: str, query: str) -> str:
+        """Stub tool adapter — uses BrowserAgent's search or direct web call."""
+        for agent in interaction.agents:
+            if agent.type == "browser_agent" and hasattr(agent, "browser"):
+                try:
+                    results = agent.browser.search(query)
+                    return str(results)
+                except Exception:
+                    pass
+        return f"[No retrieval result for: {query}]"
+
+    judge = get_judge_call()
+    phoenix_url = os.getenv("PHOENIX_ENDPOINT", "")
+
+    result = run_aar(
+        query=request.query,
+        llm_call=llm_call,
+        tool_call=tool_call,
+        judge_call=judge,
+        phoenix_base_url=phoenix_url,
+    )
+
+    return JSONResponse(status_code=200, content=result.jsonify())
+
+
 if __name__ == "__main__":
     # Print startup info
     if is_running_in_docker():
