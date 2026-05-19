@@ -11,6 +11,7 @@ from sources.tools.JavaInterpreter import JavaInterpreter
 from sources.tools.fileFinder import FileFinder
 from sources.logger import Logger
 from sources.memory import Memory
+from sources.aar import aar_tracker, AARStepType
 
 class CoderAgent(Agent):
     """
@@ -58,6 +59,11 @@ class CoderAgent(Agent):
             answer, reasoning = await self.llm_request()
             self.last_reasoning = reasoning
             if clarify_trigger in answer:
+                aar_tracker.log(
+                    agent_type=self.type, agent_name=self.agent_name,
+                    step_type=AARStepType.HITL_TRIGGER, autonomous=False,
+                    notes="Requesting user clarification",
+                )
                 self.last_answer = answer
                 await asyncio.sleep(0)
                 return answer, reasoning
@@ -78,10 +84,21 @@ class CoderAgent(Agent):
                 break
             pretty_print(f"Execution failure:\n{feedback}", color="failure")
             pretty_print("Correcting code...", color="status")
+            aar_tracker.log(
+                agent_type=self.type, agent_name=self.agent_name,
+                step_type=AARStepType.SELF_HEALING, autonomous=True,
+                confidence=0.0,
+                notes=f"Self-correcting code, attempt {attempt + 1}/{max_attempts}",
+            )
             self.status_message = "Correcting code..."
             attempt += 1
         self.status_message = "Ready"
         if attempt == max_attempts:
+            aar_tracker.log(
+                agent_type=self.type, agent_name=self.agent_name,
+                step_type=AARStepType.HITL_TRIGGER, autonomous=False,
+                notes="Max attempts reached, requesting human guidance",
+            )
             return "I'm sorry, I couldn't find a solution to your problem. How would you like me to proceed ?", reasoning
         self.last_answer = answer
         return answer, reasoning

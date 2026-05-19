@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from sources.memory import Memory
 from sources.utility import pretty_print
 from sources.schemas import executorResult
+from sources.aar import aar_tracker, AARStepType
 
 random.seed(time.time())
 
@@ -162,6 +163,13 @@ class Agent():
         Asynchronously ask the LLM to process the prompt.
         """
         self.status_message = "Thinking..."
+        aar_tracker.log(
+            agent_type=self.type or "unknown",
+            agent_name=self.agent_name,
+            step_type=AARStepType.PERCEPTION,
+            autonomous=True,
+            notes="LLM inference request",
+        )
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.executor, self.sync_llm_request)
     
@@ -271,9 +279,24 @@ class Agent():
                 pretty_print(f"Executing {len(blocks)} {name} blocks...", color="status")
                 for block in blocks:
                     self.show_block(block)
+                    aar_tracker.log(
+                        agent_type=self.type or "unknown",
+                        agent_name=self.agent_name,
+                        step_type=AARStepType.EXECUTION,
+                        autonomous=True,
+                        notes=f"Executing {name} block",
+                    )
                     output = tool.execute([block])
                     feedback = tool.interpreter_feedback(output) # tool interpreter feedback
                     success = not tool.execution_failure_check(output)
+                    aar_tracker.log(
+                        agent_type=self.type or "unknown",
+                        agent_name=self.agent_name,
+                        step_type=AARStepType.SELF_EVAL,
+                        autonomous=True,
+                        confidence=1.0 if success else 0.0,
+                        notes=f"{name} {'passed' if success else 'failed'}",
+                    )
                     self.blocks_result.append(executorResult(block, feedback, success, name))
                     if not success:
                         self.success = False

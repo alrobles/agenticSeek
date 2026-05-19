@@ -11,6 +11,7 @@ from sources.tools.searxSearch import searxSearch
 from sources.browser import Browser
 from sources.logger import Logger
 from sources.memory import Memory
+from sources.aar import aar_tracker, AARStepType
 
 class Action(Enum):
     REQUEST_EXIT = "REQUEST_EXIT"
@@ -349,6 +350,11 @@ class BrowserAgent(Agent):
             return ai_prompt, "" 
         animate_thinking(f"Searching...", color="status")
         self.status_message = "Searching..."
+        aar_tracker.log(
+            agent_type=self.type, agent_name=self.agent_name,
+            step_type=AARStepType.EXECUTION, autonomous=True,
+            notes="Web search query",
+        )
         search_result_raw = self.tools["web_search"].execute([ai_prompt], False)
         search_result = self.jsonify_search_results(search_result_raw)[:16]
         self.show_search_results(search_result)
@@ -410,10 +416,20 @@ class BrowserAgent(Agent):
 
             animate_thinking(f"Navigating to {link}", color="status")
             if speech_module: speech_module.speak(f"Navigating to {link}")
+            aar_tracker.log(
+                agent_type=self.type, agent_name=self.agent_name,
+                step_type=AARStepType.EXECUTION, autonomous=True,
+                notes=f"Navigating to {link[:80]}",
+            )
             nav_ok = self.browser.go_to(link)
             self.search_history.append(link)
             if not nav_ok:
                 pretty_print(f"Failed to navigate to {link}.", color="failure")
+                aar_tracker.log(
+                    agent_type=self.type, agent_name=self.agent_name,
+                    step_type=AARStepType.SELF_HEALING, autonomous=True,
+                    confidence=0.0, notes=f"Navigation failed, trying next link",
+                )
                 prompt = self.make_newsearch_prompt(user_prompt, unvisited)
                 continue
             self.current_page = link

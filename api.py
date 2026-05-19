@@ -22,6 +22,7 @@ from sources.utility import pretty_print
 from sources.logger import Logger
 from sources.schemas import QueryRequest, QueryResponse
 from sources.agenticplug_ux import ux_store
+from sources.aar import aar_tracker
 from sources.local_security import (
     DEFAULT_CORS_ORIGINS,
     LocalTokenMiddleware,
@@ -416,6 +417,31 @@ async def generate_mock_task(title: str = "", scenario: str = "default"):
         status_code=200,
         content=task.jsonify(),
     )
+
+
+# --- AAR (Agentic Autonomy Ratio) endpoints ---
+
+@api.get("/aar/summary")
+async def aar_summary():
+    """Current session AAR: ratio, band, breakdown by agent and step type."""
+    return JSONResponse(status_code=200, content=aar_tracker.summary())
+
+
+@api.get("/aar/timeline")
+async def aar_timeline():
+    """Ordered list of all AAR events for the current session."""
+    events = aar_tracker.get_events()
+    return JSONResponse(
+        status_code=200,
+        content={"events": [e.jsonify() for e in events], "total": len(events)},
+    )
+
+
+@api.post("/aar/reset")
+async def aar_reset():
+    """Reset AAR tracking for a new session."""
+    aar_tracker.reset()
+    return JSONResponse(status_code=200, content={"status": "reset"})
 
 
 if __name__ == "__main__":
