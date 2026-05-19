@@ -17,7 +17,7 @@ from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
 
 class Provider:
-    def __init__(self, provider_name, model, server_address="127.0.0.1:5000", is_local=False):
+    def __init__(self, provider_name, model, server_address="127.0.0.1:5000", is_local=False, temperature=None, top_p=None):
         self.provider_name = provider_name.lower()
         # Normalize provider name aliases (e.g. README documents 'togetherAI' but canonical key is 'together')
         _aliases = {"togetherai": "together"}
@@ -45,6 +45,8 @@ class Provider:
             "agenticplug": self.agenticplug_fn,
             "test": self.test_fn
         }
+        self.temperature = temperature
+        self.top_p = top_p
         self.logger = Logger("provider.log")
         self.api_key = None
         self.internal_url, self.in_docker = self.get_internal_url()
@@ -538,12 +540,13 @@ class Provider:
         client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         if self.is_local:
             raise Exception("Deepseek (API) is not available for local use. Change config.ini")
+        kwargs = {"model": "deepseek-chat", "messages": history, "stream": False}
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
         try:
-            response = client.chat.completions.create(
-                model="deepseek-chat",
-                messages=history,
-                stream=False
-            )
+            response = client.chat.completions.create(**kwargs)
             thought = response.choices[0].message.content
             if verbose:
                 print(thought)
@@ -573,12 +576,16 @@ class Provider:
                 "See docs/deepseek-byok.md for setup instructions."
             )
         client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        kwargs = {
+            "model": self.model if self.model != "deepseek-r1:14b" else "deepseek-chat",
+            "messages": history, "stream": False,
+        }
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
         try:
-            response = client.chat.completions.create(
-                model=self.model if self.model != "deepseek-r1:14b" else "deepseek-chat",
-                messages=history,
-                stream=False
-            )
+            response = client.chat.completions.create(**kwargs)
             thought = response.choices[0].message.content
             if verbose:
                 print(thought)
