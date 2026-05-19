@@ -87,7 +87,13 @@ api.mount("/screenshots", StaticFiles(directory=".screenshots"), name="screensho
 
 def initialize_system():
     stealth_mode = config.getboolean('BROWSER', 'stealth_mode')
-    personality_folder = "jarvis" if config.getboolean('MAIN', 'jarvis_personality') else "base"
+    personality_type = config.get('MAIN', 'personality', fallback=None)
+    if personality_type and personality_type in ("ecoseek", "jarvis", "base"):
+        personality_folder = personality_type
+    elif config.getboolean('MAIN', 'jarvis_personality', fallback=False):
+        personality_folder = "jarvis"
+    else:
+        personality_folder = "base"
     languages = config["MAIN"]["languages"].split(' ')
     
     # Force headless mode in Docker containers
@@ -108,11 +114,16 @@ def initialize_system():
         
         headless = True
     
+    temperature = config.getfloat('MAIN', 'temperature', fallback=None)
+    top_p = config.getfloat('MAIN', 'top_p', fallback=None)
+
     provider = Provider(
         provider_name=config["MAIN"]["provider_name"],
         model=config["MAIN"]["provider_model"],
         server_address=config["MAIN"]["provider_server_address"],
-        is_local=config.getboolean('MAIN', 'is_local')
+        is_local=config.getboolean('MAIN', 'is_local'),
+        temperature=temperature,
+        top_p=top_p,
     )
     logger.info(f"Provider initialized: {provider.provider_name} ({provider.model})")
 
